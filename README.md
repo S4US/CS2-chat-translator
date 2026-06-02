@@ -5,18 +5,6 @@ real time. The app listens to CS2's `console.log`, detects newly appended chat
 messages, translates them, and shows the original and translated text in a
 compact native desktop window.
 
-## Features
-
-- Tails CS2 `console.log` from the current end of the file.
-- Parses `[ALL]`, `[CT]`, and `[T]` chat messages.
-- Ignores old log history and non-chat console output.
-- Supports Windows and Linux.
-- Prompts for a custom `console.log` path when the default path is missing.
-- Supports DeepL and OpenAI-compatible LLM providers.
-- Stores API keys through the operating system keyring.
-- Provides a modern companion UI with provider settings, target language, status,
-  retry, and clear controls.
-
 ## Requirements
 
 - CS2 launch option `-condebug` must be enabled.

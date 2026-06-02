@@ -1,0 +1,394 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: #111317;
+  color: #eef1f4;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 720px;
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(38, 45, 52, 0.88), rgba(17, 19, 23, 1)),
+    #111317;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  cursor: pointer;
+}
+
+.shell {
+  min-height: 100vh;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.eyebrow {
+  color: #90a2b8;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 18px;
+}
+
+.actions,
+.statusBand,
+.pathPicker,
+.keyRow,
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.primaryButton,
+.secondaryButton,
+.dangerButton,
+.iconButton {
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 7px;
+  font-weight: 700;
+  transition:
+    transform 120ms ease,
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+.primaryButton {
+  color: #08120f;
+  background: #56d798;
+  padding: 0 18px;
+}
+
+.secondaryButton {
+  color: #eef1f4;
+  background: #242a31;
+  border: 1px solid #38414c;
+  padding: 0 14px;
+}
+
+.dangerButton {
+  color: #fff7f7;
+  background: #be4f57;
+  padding: 0 18px;
+}
+
+.iconButton {
+  width: 40px;
+  color: #eef1f4;
+  background: #242a31;
+  border: 1px solid #38414c;
+}
+
+.dangerIcon {
+  color: #ff9da5;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+.statusBand {
+  min-height: 46px;
+  padding: 10px 12px;
+  border: 1px solid #2d3540;
+  border-radius: 8px;
+  background: rgba(25, 29, 35, 0.82);
+}
+
+.statusPill,
+.statusText {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: #c8d2de;
+  font-size: 13px;
+}
+
+.statusPill {
+  color: #abb7c4;
+  font-weight: 800;
+}
+
+.statusPill.live {
+  color: #64e39f;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 8px;
+  color: #ffe1a3;
+  background: rgba(126, 82, 29, 0.24);
+  border: 1px solid rgba(245, 178, 82, 0.36);
+}
+
+.layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.layout.timelineOnly {
+  grid-template-columns: 1fr;
+}
+
+.settingsPanel,
+.timeline {
+  min-height: 0;
+  border: 1px solid #2d3540;
+  border-radius: 8px;
+  background: rgba(20, 24, 29, 0.9);
+}
+
+.settingsPanel {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  overflow: auto;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #aebdcb;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.row > label {
+  flex: 1;
+  min-width: 0;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 40px;
+  color: #eef1f4;
+  background: #11161c;
+  border: 1px solid #35404b;
+  border-radius: 7px;
+  outline: none;
+  padding: 0 11px;
+}
+
+input:focus,
+select:focus {
+  border-color: #6aa6ff;
+  box-shadow: 0 0 0 3px rgba(106, 166, 255, 0.16);
+}
+
+.pathPicker input,
+.keyRow input {
+  flex: 1;
+  min-width: 0;
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.timeline {
+  padding: 12px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.emptyState {
+  min-height: 100%;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  color: #8fa0b3;
+  text-align: center;
+}
+
+.emptyState svg {
+  margin: 0 auto 4px;
+  color: #67b7ff;
+}
+
+.emptyState p {
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.message {
+  border: 1px solid #303944;
+  border-radius: 8px;
+  background: #181d23;
+  padding: 12px;
+}
+
+.messageMeta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 8px;
+  min-width: 0;
+}
+
+.messageMeta strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messageMeta time {
+  margin-left: auto;
+  color: #8795a5;
+  font-size: 12px;
+}
+
+.teamTag {
+  min-width: 42px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.teamTag.all {
+  color: #e6eff9;
+  background: #46515e;
+}
+
+.teamTag.ct {
+  color: #e7f3ff;
+  background: #286da8;
+}
+
+.teamTag.t {
+  color: #22190b;
+  background: #dca953;
+}
+
+.original {
+  color: #bfc8d3;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.translation {
+  margin-top: 9px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #f4f8fb;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.translation.queued,
+.translation.translating {
+  color: #9caebe;
+}
+
+.translation.error {
+  color: #ffabb3;
+}
+
+.spin {
+  animation: spin 800ms linear infinite;
+}
+
+.linkButton {
+  color: #9dccff;
+  background: transparent;
+  padding: 4px 0;
+  font-weight: 800;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 820px) {
+  body {
+    min-width: 0;
+  }
+
+  .shell {
+    padding: 14px;
+  }
+
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .statusBand {
+    flex-wrap: wrap;
+  }
+}

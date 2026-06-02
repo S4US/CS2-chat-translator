@@ -1,0 +1,33 @@
+[package]
+name = "cs2-chat-translator"
+version = "0.1.0"
+description = "Realtime CS2 chat translator"
+authors = ["saus"]
+license = "MIT"
+repository = ""
+edition = "2021"
+
+[lib]
+name = "cs2_chat_translator_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+dirs = "5"
+keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native", "linux-native"] }
+notify = "6"
+regex = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -292,7 +292,6 @@ export default function App() {
     <main className="shell">
       <section className="topbar">
         <div>
-          <div className="eyebrow">CS2 companion</div>
           <h1>Chat Translator</h1>
         </div>
         <div className="actions">

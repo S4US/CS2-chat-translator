@@ -247,7 +247,6 @@ export default function App() {
     await saveSettings(settings);
     await startTailing(settings.logPath);
     setTailing(true);
-    setAppNotice("Listening from the current end of console.log.");
   }
 
   async function saveApiKey() {

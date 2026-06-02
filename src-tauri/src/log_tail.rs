@@ -118,7 +118,10 @@ pub fn default_log_path() -> Option<PathBuf> {
 }
 
 pub fn parse_chat_line(line: &str, source_offset: u64) -> Option<ChatMessage> {
-    let regex = Regex::new(r"^\[(ALL|CT|T)\]\s+([^:]+):\s?(.*)$").ok()?;
+    let regex = Regex::new(
+        r"^(?:(?:\d{2}/\d{2})\s+\d{2}:\d{2}:\d{2}\s+)?\[(ALL|CT|T)\]\s+([^:]+):\s?(.*)$",
+    )
+    .ok()?;
     let captures = regex.captures(line.trim_end())?;
     let team = match captures.get(1)?.as_str() {
         "ALL" => TeamScope::All,
@@ -130,11 +133,31 @@ pub fn parse_chat_line(line: &str, source_offset: u64) -> Option<ChatMessage> {
     Some(ChatMessage {
         id: Uuid::new_v4().to_string(),
         team,
-        player_name: captures.get(2)?.as_str().trim().to_string(),
+        player_name: clean_player_name(captures.get(2)?.as_str()),
         original_text: captures.get(3)?.as_str().to_string(),
         timestamp: Utc::now().to_rfc3339(),
         source_offset,
     })
+}
+
+fn clean_player_name(raw_name: &str) -> String {
+    let cleaned = raw_name
+        .replace(
+            ['\u{200e}', '\u{200f}', '\u{202a}', '\u{202b}', '\u{202c}'],
+            "",
+        )
+        .trim()
+        .to_string();
+
+    let location_marker = cleaned
+        .find('@')
+        .or_else(|| cleaned.find('﹫'))
+        .or_else(|| cleaned.find('＠'));
+
+    match location_marker {
+        Some(index) => cleaned[..index].trim().to_string(),
+        None => cleaned,
+    }
 }
 
 fn read_new_lines(app: &AppHandle, path: &Path, offset: &mut u64, partial: &mut String) {
@@ -231,6 +254,28 @@ mod tests {
         assert_eq!(t.team, TeamScope::T);
         assert_eq!(all.player_name, "PlayerName");
         assert_eq!(ct.original_text, "drop me an awp");
+    }
+
+    #[test]
+    fn parses_timestamped_console_chat() {
+        let ct = parse_chat_line("06/02 10:37:14  [CT] saus‎﹫CT Start: Hello", 15).unwrap();
+        let all = parse_chat_line("06/02 10:38:05  [ALL] saus‎: Hello", 16).unwrap();
+
+        assert_eq!(ct.team, TeamScope::Ct);
+        assert_eq!(ct.player_name, "saus");
+        assert_eq!(ct.original_text, "Hello");
+        assert_eq!(all.team, TeamScope::All);
+        assert_eq!(all.player_name, "saus");
+        assert_eq!(all.original_text, "Hello");
+    }
+
+    #[test]
+    fn strips_common_team_location_markers() {
+        let normal_at = parse_chat_line("[CT] saus@CT Start: Hello", 1).unwrap();
+        let full_width_at = parse_chat_line("[T] saus＠T Spawn: Hello", 2).unwrap();
+
+        assert_eq!(normal_at.player_name, "saus");
+        assert_eq!(full_width_at.player_name, "saus");
     }
 
     #[test]

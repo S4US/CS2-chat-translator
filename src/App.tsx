@@ -1,124 +1,101 @@
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
-  Check,
   Eraser,
-  FolderOpen,
-  KeyRound,
-  Languages,
   Loader2,
+  Mic,
+  MicOff,
   Pause,
+  PictureInPicture2,
   Play,
-  Radio,
-  Save,
   Settings as SettingsIcon,
-  Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DEFAULT_SETTINGS, PROVIDERS, TARGET_LANGUAGES } from "./constants";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { SettingsPanel } from "./components/SettingsPanel";
+import { StatusBar } from "./components/StatusBar";
+import { Timeline } from "./components/Timeline";
+import { PROVIDERS } from "./constants";
+import { useApiKeys } from "./hooks/useApiKeys";
+import { useSettings } from "./hooks/useSettings";
+import { useTranslationQueue } from "./hooks/useTranslationQueue";
+import { useVoice } from "./hooks/useVoice";
 import {
-  clearApiKey,
-  getDefaultLogPath,
-  hasApiKey,
-  loadSettings,
   onChatMessage,
+  onOverlayClosed,
+  onOverlayLockRequested,
+  onOverlayReady,
   onTailError,
-  saveSettings,
-  setApiKey,
+  sendOverlayState,
+  setOverlay,
   startTailing,
   stopTailing,
-  translateText,
 } from "./tauri";
-import type { ChatMessage, ProviderId, Settings, TimelineMessage } from "./types";
-import { formatTime, messageFingerprint, providerConfig, statusLabel } from "./utils";
+import type { OverlaySettings, OverlayState } from "./types";
+import { errorMessage, shownWhenHiding } from "./utils";
 
-const MAX_MESSAGES = 200;
+const OVERLAY_SYNC_MESSAGES = 10;
 
 export default function App() {
-  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [apiKeyDraft, setApiKeyDraft] = useState("");
-  const [hasKey, setHasKey] = useState<Record<ProviderId, boolean>>({
-    deepl: false,
-    "openai-compatible": false,
-  });
-  const [messages, setMessages] = useState<TimelineMessage[]>([]);
   const [tailing, setTailing] = useState(false);
   const [tailError, setTailError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(true);
   const [appNotice, setAppNotice] = useState<string | null>(null);
-  const seenFingerprints = useRef(new Set<string>());
-  const generation = useRef(0);
-  const queue = useRef<string[]>([]);
-  const active = useRef(false);
-  const messagesRef = useRef<TimelineMessage[]>([]);
-  const settingsRef = useRef(settings);
-  const hasKeyRef = useRef(hasKey);
+  const { settings, setSettings, appliedSettings, loaded } = useSettings(setAppNotice);
+  const { hasKey, updateKey } = useApiKeys();
+  const { messages, addChatMessage, addVoiceMessage, retryMessage, clearMessages } = useTranslationQueue(
+    appliedSettings,
+    hasKey,
+  );
+  const voice = useVoice(addVoiceMessage);
+  const visibleMessages = useMemo(
+    () => (settings.hideSameLanguage ? messages.filter(shownWhenHiding) : messages),
+    [messages, settings.hideSameLanguage],
+  );
+  const overlayState = useRef<OverlayState>({ messages: [], locked: false });
 
   useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
-
-  useEffect(() => {
-    settingsRef.current = settings;
-  }, [settings]);
-
-  useEffect(() => {
-    hasKeyRef.current = hasKey;
-  }, [hasKey]);
-
-  useEffect(() => {
-    async function bootstrap() {
-      const [loaded, defaultLogPath, deeplKey, llmKey] = await Promise.all([
-        loadSettings().catch(() => DEFAULT_SETTINGS),
-        getDefaultLogPath().catch(() => null),
-        hasApiKey("deepl").catch(() => false),
-        hasApiKey("openai-compatible").catch(() => false),
-      ]);
-
-      const nextSettings = {
-        ...DEFAULT_SETTINGS,
-        ...loaded,
-        deepl: { ...DEFAULT_SETTINGS.deepl, ...loaded.deepl },
-        llm: { ...DEFAULT_SETTINGS.llm, ...loaded.llm },
-        logPath: loaded.logPath ?? defaultLogPath,
-      };
-
-      setSettings(nextSettings);
-      setHasKey({ deepl: deeplKey, "openai-compatible": llmKey });
-      if (!nextSettings.logPath) {
-        setAppNotice("Select your CS2 console.log file to start listening.");
-      }
+    if (loaded && !settings.logPath) {
+      setAppNotice("Select your CS2 console.log file to start listening.");
     }
-
-    bootstrap();
-  }, []);
+  }, [loaded]);
 
   useEffect(() => {
-    const unlistenChat = onChatMessage(handleIncomingMessage);
-    const unlistenError = onTailError((message) => {
-      setTailError(message);
-      setTailing(false);
-    });
+    const listeners = [
+      onChatMessage(addChatMessage),
+      onTailError((message) => {
+        setTailError(message);
+        setTailing(false);
+      }),
+      onOverlayReady(() => void sendOverlayState(overlayState.current)),
+      onOverlayClosed(() => updateOverlay({ visible: false })),
+      onOverlayLockRequested(() => updateOverlay({ locked: true })),
+    ];
 
     return () => {
-      unlistenChat.then((unlisten) => unlisten());
-      unlistenError.then((unlisten) => unlisten());
+      for (const listener of listeners) {
+        listener.then((unlisten) => unlisten());
+      }
       stopTailing().catch(() => undefined);
     };
   }, []);
 
   useEffect(() => {
-    generation.current += 1;
-    queue.current = [];
-    active.current = false;
-    setMessages((current) =>
-      current.map((message) =>
-        message.translationStatus === "translating" || message.translationStatus === "queued"
-          ? { ...message, translationStatus: "error", translationError: "Translation settings changed" }
-          : message,
-      ),
-    );
-  }, [settings.selectedProvider, settings.targetLanguage, settings.deepl.apiUrl, settings.llm.baseUrl, settings.llm.model]);
+    if (loaded) {
+      setOverlay(settings.overlay.visible, settings.overlay.locked).catch((error) =>
+        setAppNotice(`Could not update the overlay: ${errorMessage(error)}`),
+      );
+    }
+  }, [loaded, settings.overlay.visible, settings.overlay.locked]);
+
+  useEffect(() => {
+    overlayState.current = {
+      messages: visibleMessages.slice(0, OVERLAY_SYNC_MESSAGES),
+      locked: settings.overlay.locked,
+    };
+    if (settings.overlay.visible) {
+      void sendOverlayState(overlayState.current).catch(() => undefined);
+    }
+  }, [visibleMessages, settings.overlay.visible, settings.overlay.locked]);
 
   const currentProviderHasKey = hasKey[settings.selectedProvider];
   const providerName = useMemo(
@@ -126,94 +103,8 @@ export default function App() {
     [settings.selectedProvider],
   );
 
-  const handleIncomingMessage = useCallback((message: ChatMessage) => {
-    const activeSettings = settingsRef.current;
-    const fingerprint = messageFingerprint(message);
-    if (seenFingerprints.current.has(fingerprint)) {
-      return;
-    }
-
-    seenFingerprints.current.add(fingerprint);
-    const timelineMessage: TimelineMessage = {
-      ...message,
-      fingerprint,
-      translationStatus: "queued",
-      providerId: activeSettings.selectedProvider,
-      targetLanguage: activeSettings.targetLanguage,
-    };
-
-    messagesRef.current = [timelineMessage, ...messagesRef.current].slice(0, MAX_MESSAGES);
-    setMessages(messagesRef.current);
-    queue.current.push(message.id);
-    void drainQueue(generation.current);
-  }, []);
-
-  async function drainQueue(queueGeneration: number) {
-    if (active.current) {
-      return;
-    }
-
-    active.current = true;
-    try {
-      while (queue.current.length > 0 && queueGeneration === generation.current) {
-        const messageId = queue.current.shift();
-        const message = messagesRef.current.find((item) => item.id === messageId);
-        if (!message) {
-          continue;
-        }
-
-        setMessages((current) =>
-          current.map((item) =>
-            item.id === messageId ? { ...item, translationStatus: "translating", translationError: undefined } : item,
-          ),
-        );
-
-        try {
-          const activeSettings = settingsRef.current;
-          const activeHasKey = hasKeyRef.current;
-          const activeProviderName =
-            PROVIDERS.find((provider) => provider.value === activeSettings.selectedProvider)?.label ?? "Provider";
-
-          if (!activeHasKey[activeSettings.selectedProvider]) {
-            throw new Error(`Missing ${activeProviderName} API key`);
-          }
-
-          const translatedText = await translateText(
-            activeSettings.selectedProvider,
-            providerConfig(activeSettings),
-            message.originalText,
-            activeSettings.targetLanguage,
-          );
-
-          if (queueGeneration !== generation.current) {
-            break;
-          }
-
-          setMessages((current) =>
-            current.map((item) =>
-              item.id === messageId
-                ? {
-                    ...item,
-                    translatedText,
-                    translationStatus: "done",
-                    providerId: activeSettings.selectedProvider,
-                    targetLanguage: activeSettings.targetLanguage,
-                  }
-                : item,
-            ),
-          );
-        } catch (error) {
-          const translationError = error instanceof Error ? error.message : String(error);
-          setMessages((current) =>
-            current.map((item) =>
-              item.id === messageId ? { ...item, translationStatus: "error", translationError } : item,
-            ),
-          );
-        }
-      }
-    } finally {
-      active.current = false;
-    }
+  function updateOverlay(changes: Partial<OverlaySettings>) {
+    setSettings((current) => ({ ...current, overlay: { ...current.overlay, ...changes } }));
   }
 
   async function chooseLogFile() {
@@ -224,9 +115,7 @@ export default function App() {
     });
 
     if (typeof selected === "string") {
-      const nextSettings = { ...settings, logPath: selected };
-      setSettings(nextSettings);
-      await saveSettings(nextSettings);
+      setSettings((current) => ({ ...current, logPath: selected }));
       setAppNotice(null);
     }
   }
@@ -244,48 +133,23 @@ export default function App() {
     }
 
     setTailError(null);
-    await saveSettings(settings);
     await startTailing(settings.logPath);
     setTailing(true);
   }
 
-  async function saveApiKey() {
-    if (!apiKeyDraft.trim()) {
+  async function toggleVoice() {
+    if (voice.voiceOn) {
+      await voice.stop();
       return;
     }
 
-    await setApiKey(settings.selectedProvider, apiKeyDraft.trim());
-    setApiKeyDraft("");
-    setHasKey((current) => ({ ...current, [settings.selectedProvider]: true }));
-  }
+    if (!hasKey["speech-to-text"]) {
+      voice.setError("Speech-to-text needs an API key. Add it under Voice chat in settings.");
+      setSettingsOpen(true);
+      return;
+    }
 
-  async function removeApiKey() {
-    await clearApiKey(settings.selectedProvider).catch(() => undefined);
-    setHasKey((current) => ({ ...current, [settings.selectedProvider]: false }));
-  }
-
-  async function persistSettings(nextSettings = settings) {
-    setSettings(nextSettings);
-    await saveSettings(nextSettings);
-    setAppNotice("Settings saved.");
-  }
-
-  function retryMessage(message: TimelineMessage) {
-    setMessages((current) =>
-      current.map((item) =>
-        item.id === message.id
-          ? { ...item, translationStatus: "queued", translationError: undefined, translatedText: undefined }
-          : item,
-      ),
-    );
-    queue.current.push(message.id);
-    void drainQueue(generation.current);
-  }
-
-  function clearTimeline() {
-    seenFingerprints.current.clear();
-    queue.current = [];
-    setMessages([]);
+    await voice.start(settings.voice);
   }
 
   return (
@@ -298,9 +162,25 @@ export default function App() {
           <button className="iconButton" title="Settings" onClick={() => setSettingsOpen((open) => !open)}>
             <SettingsIcon size={19} />
           </button>
-          <button className="secondaryButton" onClick={clearTimeline}>
+          <button className="secondaryButton" onClick={clearMessages}>
             <Eraser size={17} />
             Clear
+          </button>
+          <button
+            className={settings.overlay.visible ? "secondaryButton active" : "secondaryButton"}
+            title="Show translations above the game"
+            onClick={() => updateOverlay({ visible: !settings.overlay.visible })}
+          >
+            <PictureInPicture2 size={17} />
+            Overlay
+          </button>
+          <button
+            className={voice.voiceOn ? "dangerButton" : "secondaryButton"}
+            onClick={toggleVoice}
+            disabled={voice.starting}
+          >
+            {voice.starting ? <Loader2 className="spin" size={17} /> : voice.voiceOn ? <MicOff size={17} /> : <Mic size={17} />}
+            {voice.voiceOn ? "Stop voice" : "Voice"}
           </button>
           <button className={tailing ? "dangerButton" : "primaryButton"} onClick={toggleTailing}>
             {tailing ? <Pause size={18} /> : <Play size={18} />}
@@ -309,142 +189,41 @@ export default function App() {
         </div>
       </section>
 
-      <section className="statusBand">
-        <div className={tailing ? "statusPill live" : "statusPill"}>
-          <Radio size={17} />
-          {tailing ? "Listening" : "Idle"}
-        </div>
-        <div className="statusText">{statusLabel(messages)}</div>
-        <div className="statusText">{providerName}</div>
-        <div className="statusText">
-          <Languages size={16} />
-          {settings.targetLanguage}
-        </div>
-      </section>
+      <StatusBar
+        tailing={tailing}
+        voiceOn={voice.voiceOn}
+        voiceWaiting={voice.waiting}
+        voiceDevice={voice.device}
+        voiceLevel={voice.level}
+        filtered={voice.filtered}
+        messages={messages}
+        providerName={providerName}
+        targetLanguage={settings.targetLanguage}
+      />
 
-      {(tailError || appNotice || !currentProviderHasKey) && (
+      {(tailError || voice.error || appNotice || !currentProviderHasKey) && (
         <section className="notice">
           <AlertTriangle size={18} />
-          <span>{tailError ?? appNotice ?? `${providerName} needs an API key before translations can run.`}</span>
+          <span>
+            {tailError ?? voice.error ?? appNotice ?? `${providerName} needs an API key before translations can run.`}
+          </span>
         </section>
       )}
 
       <div className={settingsOpen ? "layout" : "layout timelineOnly"}>
         {settingsOpen && (
-          <aside className="settingsPanel">
-            <label>
-              <span>Log file</span>
-              <div className="pathPicker">
-                <input value={settings.logPath ?? ""} onChange={(event) => setSettings({ ...settings, logPath: event.target.value })} />
-                <button className="iconButton" title="Choose log file" onClick={chooseLogFile}>
-                  <FolderOpen size={18} />
-                </button>
-              </div>
-            </label>
-
-            <div className="row">
-              <label>
-                <span>Provider</span>
-                <select
-                  value={settings.selectedProvider}
-                  onChange={(event) => setSettings({ ...settings, selectedProvider: event.target.value as ProviderId })}
-                >
-                  {PROVIDERS.map((provider) => (
-                    <option value={provider.value} key={provider.value}>
-                      {provider.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <span>Target</span>
-                <select value={settings.targetLanguage} onChange={(event) => setSettings({ ...settings, targetLanguage: event.target.value })}>
-                  {TARGET_LANGUAGES.map((language) => (
-                    <option value={language.value} key={language.value}>
-                      {language.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            {settings.selectedProvider === "deepl" ? (
-              <label>
-                <span>DeepL API URL</span>
-                <input value={settings.deepl.apiUrl} onChange={(event) => setSettings({ ...settings, deepl: { apiUrl: event.target.value } })} />
-              </label>
-            ) : (
-              <>
-                <label>
-                  <span>LLM base URL</span>
-                  <input value={settings.llm.baseUrl} onChange={(event) => setSettings({ ...settings, llm: { ...settings.llm, baseUrl: event.target.value } })} />
-                </label>
-                <label>
-                  <span>Model</span>
-                  <input value={settings.llm.model} onChange={(event) => setSettings({ ...settings, llm: { ...settings.llm, model: event.target.value } })} />
-                </label>
-              </>
-            )}
-
-            <label>
-              <span>API key</span>
-              <div className="keyRow">
-                <input
-                  type="password"
-                  value={apiKeyDraft}
-                  placeholder={currentProviderHasKey ? "Key saved in OS keyring" : "Paste provider API key"}
-                  onChange={(event) => setApiKeyDraft(event.target.value)}
-                />
-                <button className="iconButton" title="Save API key" onClick={saveApiKey}>
-                  {currentProviderHasKey ? <Check size={18} /> : <KeyRound size={18} />}
-                </button>
-                <button className="iconButton dangerIcon" title="Remove API key" onClick={removeApiKey}>
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            </label>
-
-            <button className="secondaryButton fullWidth" onClick={() => persistSettings()}>
-              <Save size={17} />
-              Save settings
-            </button>
-          </aside>
+          <SettingsPanel
+            settings={settings}
+            setSettings={setSettings}
+            hasKey={hasKey}
+            onKeyChange={updateKey}
+            audioDevices={voice.devices}
+            onRefreshAudioDevices={voice.refreshDevices}
+            voiceOn={voice.voiceOn}
+            onChooseLogFile={chooseLogFile}
+          />
         )}
-
-        <section className="timeline" aria-label="Translated chat messages">
-          {messages.length === 0 ? (
-            <div className="emptyState">
-              <Languages size={34} />
-              <h2>No new chat yet</h2>
-              <p>Start listening, then CS2 chat lines appended to console.log will appear here.</p>
-            </div>
-          ) : (
-            messages.map((message) => (
-              <article className="message" key={message.id}>
-                <div className="messageMeta">
-                  <span className={`teamTag ${message.team.toLowerCase()}`}>{message.team}</span>
-                  <strong>{message.playerName}</strong>
-                  <time>{formatTime(message.timestamp)}</time>
-                </div>
-                <p className="original">{message.originalText || "\u00a0"}</p>
-                <div className={`translation ${message.translationStatus}`}>
-                  {message.translationStatus === "translating" && <Loader2 className="spin" size={17} />}
-                  {message.translationStatus === "queued" && "Queued"}
-                  {message.translationStatus === "translating" && "Translating"}
-                  {message.translationStatus === "done" && message.translatedText}
-                  {message.translationStatus === "error" && (
-                    <>
-                      <span>{message.translationError}</span>
-                      <button className="linkButton" onClick={() => retryMessage(message)}>
-                        Retry
-                      </button>
-                    </>
-                  )}
-                </div>
-              </article>
-            ))
-          )}
-        </section>
+        <Timeline messages={visibleMessages} onRetry={retryMessage} onPlay={voice.play} />
       </div>
     </main>
   );

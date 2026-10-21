@@ -25,7 +25,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -104,6 +105,11 @@ h2 {
   padding: 0 14px;
 }
 
+.secondaryButton.active {
+  color: #64e39f;
+  border-color: #56d798;
+}
+
 .dangerButton {
   color: #fff7f7;
   background: #be4f57;
@@ -150,6 +156,29 @@ button:hover {
 
 .statusPill.live {
   color: #64e39f;
+}
+
+.statusPill.speaking {
+  color: #b9a6ff;
+}
+
+.statusPill.waiting {
+  color: #f0c36b;
+}
+
+.levelMeter {
+  width: 64px;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #2d3540;
+}
+
+.levelMeter span {
+  display: block;
+  height: 100%;
+  background: currentColor;
+  transition: width 120ms linear;
 }
 
 .notice {
@@ -206,7 +235,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-height: 40px;
   color: #eef1f4;
@@ -217,8 +247,47 @@ select {
   padding: 0 11px;
 }
 
+textarea {
+  padding: 9px 11px;
+  resize: vertical;
+}
+
+input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  margin: 0;
+  accent-color: #56d798;
+}
+
+.checkRow {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+input[type="range"] {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: #56d798;
+}
+
+input:disabled,
+select:disabled,
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button:disabled:hover {
+  transform: none;
+}
+
 input:focus,
-select:focus {
+select:focus,
+textarea:focus {
   border-color: #6aa6ff;
   box-shadow: 0 0 0 3px rgba(106, 166, 255, 0.16);
 }
@@ -231,6 +300,18 @@ select:focus {
 
 .fullWidth {
   width: 100%;
+}
+
+.sectionTitle {
+  margin-top: 6px;
+  padding-top: 15px;
+  border-top: 1px solid #2d3540;
+  font-size: 15px;
+}
+
+.hint {
+  color: #8fa0b3;
+  font-size: 13px;
 }
 
 .timeline {
@@ -282,6 +363,21 @@ select:focus {
   white-space: nowrap;
 }
 
+.playButton {
+  width: 28px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #c9bcff;
+  background: transparent;
+}
+
+.playButton:hover {
+  background: #2a2f3a;
+}
+
 .messageMeta time {
   margin-left: auto;
   color: #8795a5;
@@ -314,6 +410,13 @@ select:focus {
   background: #dca953;
 }
 
+.teamTag.voice {
+  gap: 4px;
+  padding: 0 7px;
+  color: #f1edff;
+  background: #6c55c9;
+}
+
 .original {
   color: #bfc8d3;
   line-height: 1.45;
@@ -340,6 +443,17 @@ select:focus {
   color: #ffabb3;
 }
 
+.translation.skipped {
+  min-height: 0;
+  color: #8fa0b3;
+  font-size: 13px;
+}
+
+.fieldError {
+  color: #ffabb3;
+  font-weight: 600;
+}
+
 .spin {
   animation: spin 800ms linear infinite;
 }
@@ -349,6 +463,117 @@ select:focus {
   background: transparent;
   padding: 4px 0;
   font-weight: 800;
+}
+
+html.overlayRoot,
+html.overlayRoot body {
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.overlay {
+  position: relative;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.overlay.unlocked {
+  border: 1px dashed rgba(106, 166, 255, 0.7);
+  background: rgba(17, 19, 23, 0.35);
+}
+
+.overlayHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  color: #c8d2de;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: move;
+  background: rgba(17, 19, 23, 0.8);
+  border-radius: 8px 8px 0 0;
+}
+
+.overlayButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  color: #08120f;
+  background: #56d798;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.overlayMessages {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.overlayLine {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: rgba(10, 12, 15, 0.72);
+  font-size: 16px;
+  line-height: 1.35;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.overlayLine .teamTag {
+  min-width: 34px;
+  height: 20px;
+  align-self: center;
+  font-size: 11px;
+  text-shadow: none;
+}
+
+.overlayLine strong {
+  color: #c8d2de;
+}
+
+.overlayText {
+  color: #ffffff;
+  overflow-wrap: anywhere;
+}
+
+.overlayText.pending {
+  color: #9caebe;
+  font-style: italic;
+}
+
+.overlayEmpty {
+  color: #c8d2de;
+  text-align: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.resizeGrip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: se-resize;
+  background: linear-gradient(135deg, transparent 50%, rgba(106, 166, 255, 0.8) 50%);
+  border-radius: 0 0 8px 0;
 }
 
 @keyframes spin {

@@ -10,6 +10,22 @@ pub struct Settings {
     pub selected_provider: String,
     pub deepl: DeeplSettings,
     pub llm: LlmSettings,
+    #[serde(default)]
+    pub voice: VoiceSettings,
+    #[serde(default)]
+    pub overlay: OverlaySettings,
+    #[serde(default)]
+    pub hide_same_language: bool,
+    /// The user's own "term = meaning" lines for translation.
+    #[serde(default)]
+    pub glossary: String,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OverlaySettings {
+    pub visible: bool,
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -25,6 +41,28 @@ pub struct LlmSettings {
     pub model: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct VoiceSettings {
+    pub device_id: Option<String>,
+    pub source_language: String,
+    pub base_url: String,
+    pub model: String,
+    pub vad_threshold: f32,
+}
+
+impl Default for VoiceSettings {
+    fn default() -> Self {
+        Self {
+            device_id: Some(crate::voice::GAME_AUDIO_SOURCE_ID.to_string()),
+            source_language: String::new(),
+            base_url: "https://api.deepinfra.com/v1/openai".to_string(),
+            model: "openai/whisper-large-v3-turbo".to_string(),
+            vad_threshold: 0.3,
+        }
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Self {
@@ -38,6 +76,10 @@ impl Default for Settings {
                 base_url: "https://api.deepseek.com/v1".to_string(),
                 model: "deepseek-chat".to_string(),
             },
+            voice: VoiceSettings::default(),
+            overlay: OverlaySettings::default(),
+            hide_same_language: false,
+            glossary: String::new(),
         }
     }
 }

@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{SecondsFormat, Utc};
 use notify::{Event, EventKind, RecursiveMode, Watcher};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         mpsc::{self, RecvTimeoutError, Sender},
-        Mutex,
+        LazyLock, Mutex,
     },
     thread,
     time::Duration,
@@ -59,7 +59,7 @@ impl TailController {
 
         thread::spawn(move || {
             let mut offset = file_len(&path).unwrap_or(0);
-            let mut partial = String::new();
+            let mut partial = Vec::new();
             let (event_tx, event_rx) = mpsc::channel::<notify::Result<Event>>();
             let mut watcher = notify::recommended_watcher(event_tx).ok();
 
@@ -117,12 +117,13 @@ pub fn default_log_path() -> Option<PathBuf> {
     }
 }
 
+static CHAT_LINE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(?:(?:\d{2}/\d{2})\s+\d{2}:\d{2}:\d{2}\s+)?\[(ALL|CT|T)\]\s+([^:]+):\s?(.*)$")
+        .expect("chat line pattern should compile")
+});
+
 pub fn parse_chat_line(line: &str, source_offset: u64) -> Option<ChatMessage> {
-    let regex = Regex::new(
-        r"^(?:(?:\d{2}/\d{2})\s+\d{2}:\d{2}:\d{2}\s+)?\[(ALL|CT|T)\]\s+([^:]+):\s?(.*)$",
-    )
-    .ok()?;
-    let captures = regex.captures(line.trim_end())?;
+    let captures = CHAT_LINE.captures(line.trim_end())?;
     let team = match captures.get(1)?.as_str() {
         "ALL" => TeamScope::All,
         "CT" => TeamScope::Ct,
@@ -135,7 +136,7 @@ pub fn parse_chat_line(line: &str, source_offset: u64) -> Option<ChatMessage> {
         team,
         player_name: clean_player_name(captures.get(2)?.as_str()),
         original_text: captures.get(3)?.as_str().to_string(),
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true),
         source_offset,
     })
 }
@@ -160,62 +161,64 @@ fn clean_player_name(raw_name: &str) -> String {
     }
 }
 
-fn read_new_lines(app: &AppHandle, path: &Path, offset: &mut u64, partial: &mut String) {
-    let Ok(current_len) = file_len(path) else {
-        let _ = app.emit("tail-error", "Log file is unavailable");
-        return;
-    };
+fn read_new_lines(app: &AppHandle, path: &Path, offset: &mut u64, partial: &mut Vec<u8>) {
+    let result = read_appended_lines(path, offset, partial, |line, line_offset| {
+        if let Some(message) = parse_chat_line(&line, line_offset) {
+            let _ = app.emit("chat-message", message);
+        }
+    });
 
+    if let Err(message) = result {
+        let _ = app.emit("tail-error", message);
+    }
+}
+
+/// Reads lines appended since `offset`. A trailing line without a newline is
+/// still being written, so its bytes wait in `partial` for the next read.
+/// Lines are decoded leniently so one malformed line cannot stall the reader,
+/// and `offset` advances per line so an error never replays earlier lines.
+fn read_appended_lines(
+    path: &Path,
+    offset: &mut u64,
+    partial: &mut Vec<u8>,
+    mut on_line: impl FnMut(String, u64),
+) -> Result<(), &'static str> {
+    let current_len = file_len(path).map_err(|_| "Log file is unavailable")?;
     if current_len < *offset {
         *offset = 0;
         partial.clear();
     }
 
     if current_len == *offset {
-        return;
+        return Ok(());
     }
 
-    let Ok(mut file) = File::open(path) else {
-        let _ = app.emit("tail-error", "Could not open log file");
-        return;
-    };
-
-    if file.seek(SeekFrom::Start(*offset)).is_err() {
-        let _ = app.emit("tail-error", "Could not seek log file");
-        return;
-    }
+    let mut file = File::open(path).map_err(|_| "Could not open log file")?;
+    file.seek(SeekFrom::Start(*offset))
+        .map_err(|_| "Could not seek log file")?;
 
     let mut reader = BufReader::new(file);
-    let mut consumed = *offset;
+    let mut buffer = Vec::new();
     loop {
-        let mut buffer = String::new();
-        let Ok(bytes) = reader.read_line(&mut buffer) else {
-            let _ = app.emit("tail-error", "Could not read log file");
-            return;
-        };
-
+        buffer.clear();
+        let bytes = reader
+            .read_until(b'\n', &mut buffer)
+            .map_err(|_| "Could not read log file")?;
         if bytes == 0 {
-            break;
+            return Ok(());
         }
 
-        consumed += bytes as u64;
-        if !buffer.ends_with('\n') && consumed == current_len {
-            partial.push_str(&buffer);
-            break;
+        *offset += bytes as u64;
+        partial.extend_from_slice(&buffer);
+        if !buffer.ends_with(b"\n") {
+            return Ok(());
         }
 
-        if !partial.is_empty() {
-            partial.push_str(&buffer);
-            buffer = partial.clone();
-            partial.clear();
-        }
-
-        if let Some(message) = parse_chat_line(&buffer, consumed - bytes as u64) {
-            let _ = app.emit("chat-message", message);
-        }
+        let line = String::from_utf8_lossy(partial).into_owned();
+        let line_offset = *offset - partial.len() as u64;
+        partial.clear();
+        on_line(line, line_offset);
     }
-
-    *offset = consumed;
 }
 
 fn file_len(path: &Path) -> io::Result<u64> {
@@ -291,5 +294,82 @@ mod tests {
     fn ignores_console_noise() {
         assert!(parse_chat_line("Unknown command: foo", 0).is_none());
         assert!(parse_chat_line("[SPEC] Player: no", 0).is_none());
+    }
+
+    struct Tail {
+        file: tempfile::NamedTempFile,
+        offset: u64,
+        partial: Vec<u8>,
+    }
+
+    impl Tail {
+        fn new() -> Self {
+            Self {
+                file: tempfile::NamedTempFile::new().unwrap(),
+                offset: 0,
+                partial: Vec::new(),
+            }
+        }
+
+        fn append(&mut self, bytes: &[u8]) {
+            use std::io::Write;
+            self.file.write_all(bytes).unwrap();
+            self.file.flush().unwrap();
+        }
+
+        fn read(&mut self) -> Vec<(String, u64)> {
+            let mut lines = Vec::new();
+            let (path, offset, partial) = (self.file.path(), &mut self.offset, &mut self.partial);
+            read_appended_lines(path, offset, partial, |line, at| lines.push((line, at))).unwrap();
+            lines
+        }
+    }
+
+    #[test]
+    fn waits_for_unfinished_lines() {
+        let mut tail = Tail::new();
+        tail.append(b"[ALL] A: one\n[ALL] B: tw");
+        assert_eq!(tail.read(), vec![("[ALL] A: one\n".to_string(), 0)]);
+
+        tail.append(b"o\n");
+        assert_eq!(tail.read(), vec![("[ALL] B: two\n".to_string(), 13)]);
+        assert!(tail.read().is_empty());
+    }
+
+    #[test]
+    fn invalid_utf8_does_not_stall_or_repeat_lines() {
+        let mut tail = Tail::new();
+        tail.append(b"[ALL] A: one\n[ALL] B: \xff\xfe\n[ALL] C: three\n");
+        let lines = tail.read();
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].0.starts_with("[ALL] B: "));
+        assert_eq!(lines[2].0, "[ALL] C: three\n");
+        assert!(tail.read().is_empty());
+    }
+
+    #[test]
+    fn keeps_characters_split_across_writes() {
+        let mut tail = Tail::new();
+        let line = "[ALL] Миша: раш\n".as_bytes();
+        tail.append(&line[..12]);
+        assert!(tail.read().is_empty());
+
+        tail.append(&line[12..]);
+        let lines = tail.read();
+        assert_eq!(lines[0].0, "[ALL] Миша: раш\n");
+        assert_eq!(parse_chat_line(&lines[0].0, 0).unwrap().player_name, "Миша");
+    }
+
+    #[test]
+    fn restarts_when_log_is_truncated() {
+        let mut tail = Tail::new();
+        tail.append(b"[ALL] A: one\n[ALL] B: two\n");
+        assert_eq!(tail.read().len(), 2);
+
+        tail.file.as_file().set_len(0).unwrap();
+        use std::io::Seek;
+        tail.file.as_file_mut().rewind().unwrap();
+        tail.append(b"[ALL] C: new\n");
+        assert_eq!(tail.read(), vec![("[ALL] C: new\n".to_string(), 0)]);
     }
 }
